@@ -1,0 +1,215 @@
+# R code for DEseq
+library(dplyr)
+library(tidyverse)
+library(DESeq2)
+gene<-read.table(file="readcount.txt", header = T, sep = "\t",row.names=1) 
+group<-read.table(file="group.txt",header=T,sep="",row.names=1, stringsAsFactors=T)  
+dds<-DESeqDataSetFromMatrix(countData=gene, colData=group,  design=~group)
+dds<-estimateSizeFactors(dds)
+sizeFactors(dds) dds<-DESeq(dds)
+res<-results(dds,contrast=c("group","Exp","Control"))
+res_1<-data.frame(res)
+res_1 <- rownames_to_column(as.data.frame(res), var = "SYMBOL") 
+res_2<-rownames_to_column(as.data.frame(gene),var="SYMBOL")
+res_3<- merge (res_1, res_2, by = "SYMBOL") 
+write.table(res_3, file = "DESeq.txt", col.names = T, row.names = F, sep = "\t", quote = F) 
+data2<- as.data.frame(res_3)
+data3 <- na.omit(data2) 
+write.table(data3,file = "-NA.txt", col.names = T, row.names = F, sep = "\t", quote = F)
+res_4<-subset(res_3, padj<0.05) 
+write.table(res_4,file="DESeq_padj=0.05-1.txt", col.names=T, row.names = F, sep = "\t", quote = F)
+
+#R code for GSEA
+library(tidyverse)
+library(clusterProfiler)
+library(GOplot)
+library(enrichplot)
+library(ggridges)
+diff <- read.table( file="-NA.txt", header = T, sep ="\t",quote = "")
+rownames(diff) <- diff[,1]
+colnames(diff)[1] <- "SYMBOL"
+GO_database <- 'org.Hs.eg.db'
+gene_diff <- bitr(rownames(diff),fromType = 'SYMBOL',toType = 'ENTREZID',OrgDb = GO_database)
+DIFF <- diff
+DIFF <- merge(DIFF,gene_diff,by='SYMBOL')
+colnames(DIFF)[3] = "Log2FoldChange"
+GSEA_input <- DIFF$Log2FoldChange
+names(GSEA_input) = DIFF$ENTREZID
+GSEA_input = sort(GSEA_input, decreasing = TRUE)
+GSEA_GO <- gseGO(geneList= GSEA_input, OrgDb = org.Hs.eg.db,
+ ont = "BP",pvalueCutoff = 1,eps=0)
+gsea_go <- as.data.frame(GSEA_GO)
+write.xlsx(GSEA_GO,file = " GSEA_GO.xlsx")
+
+# R code for Heatmap
+library(pheatmap)
+library(ggplot2)
+library(openxlsx)
+gene<-read.xlsx("Readcounts.xlsx",rowNames=TRUE,sheet=2)
+pheatmap(gene,scale="row", cluster_rows=F, cluster_cols =F,col = colorRampPalette(c('blue','white','red'))(25),cellwidth = 10,cellheight = 10,angle_col = "90")
+ggsave(file="heatmap.pdf",width=5,height=20,limitsize = FALSE)
+
+# R code for the visualization of GSEA
+library(openxlsx)
+library(ggplot2)
+library(RColorBrewer)
+library(remotes)
+GO<-read.xlsx("GSEA_GO.xlsx", rowNames=TRUE)
+num<- as.numeric(GO$num)
+ggplot(data=GO,aes(x=reorder(Description,num,sum),y=NES,fill=(qvalues)))+scale_fill_continuous(low="red",high="blue")+geom_bar(stat="identity",width=0.4)+coord_flip()+xlab("Description")+ylim(2,2)+ylab("NES")+theme(axis.text.y=element_text(size=rel(2),colour="black"),axis.text.x=element_text(size=rel(2),colour="black"),axis.title = element_text(size = rel(1.5),colour="black"),legend.title=element_text(size = rel(1.5),colour = "black"),legend.text = element_text(size = rel(1.5),colour = "black"))
+
+# R code for volcano plots
+library(ggpubr)
+library(ggplot2)
+library(DESeq2)
+library(ggrepel)
+library(ggthemes)
+DESeq2_DEG1<- read.table( file="-NA.txt", header = T, sep ="\t",quote = "")
+diff <- subset(DESeq2_DEG1,pvalue < 0.05)
+up <- subset(diff,log2FoldChange >1)
+down <- subset(diff,log2FoldChange < -1)
+DEG_data<-DESeq2_DEG1
+DEG_data$logp <- -log10(DEG_data$padj)
+dim(DEG_data)
+DEG_data$Group <- "not-siginficant"
+DEG_data$Group[which((DEG_data$padj<0.05)&DEG_data$log2FoldChange >1)] = "up-regulated"
+DEG_data$Group[which((DEG_data$padj<0.05)& DEG_data$log2FoldChange < -1)] = "down-regulated"
+table(DEG_data$Group)
+DEG_data <- DEG_data[order(DEG_data$padj),]
+up_label <- head(DEG_data[DEG_data$Group == "up-regulated",],10)
+down_label<-head(DEG_data[DEG_data$Group=="downregulated",],10)
+deg_label_gene<data.frame(gene=c(rownames(up_label),rownames(down_label)), label = c(rownames(up_label),rownames(down_label)))
+DEG_data$gene <- rownames(DEG_data)
+DEG_data <- merge(DEG_data,deg_label_gene,by = 'gene',all = T)
+ggscatter(DEG_data,x = "log2FoldChange",y = "logp", color = "Group", palette = c("blue","gray","red"),label = DEG_data$label,repel = T,ylab="-log10(Padj)",size=0.5)+theme_base()+theme(element_line(size=0),element_rect(size=1.5))+scale_y_continuous(limits=c(0,20))+scale_x_continuous(limits=c(-20,20))+geom_hline(yintercept=1.3,linetype="dashed")+ geom_vline (xintercept = c(-1,1),linetype = "dashed")
+
+# R code for PCA
+library(FactoMineR) 
+library(ggplot2)
+library(tidyverse)
+library(factoextra)
+library(RColorBrewer)
+library("FactoMineR")
+library("factoextra")
+data<- read.csv("readcounts.csv", row.names=1) 
+data <- t(data)
+grouplist <- read.csv("GROUP.csv",row.names = 1)
+data<cbind(grouplist,data)
+res.pca <- PCA(data[,-c(1:1)], graph = FALSE) 
+fviz_pca_ind(res.pca,geom.ind = "point", ,textsize=4, #geom="point",
+pointshape=1,pointsize=4,col.ind=data$group,palette=c("#009393","black","orange","grey","red"), addEllipses = F, ellipse.type = "confidence", mean.point=F,legend.title = "Groups")+theme_test()
+
+# R code for correlation of heatmap
+data <- read.table("data.txt", header = T,sep = "\t")
+M <- cor(data,method = "spearman")cor.mtest <- function(mat, ...) {mat <- as.matrix(mat)n <- ncol(mat) p.mat<- matrix(NA, n, n)diag(p.mat) <- 0 for (i in 1:(n - 1)) {for (j in (i + 1):n) {tmp <- cor.test(mat[, i], mat[, j], ...)p.mat[i, j] <- p.mat[j, i] <- tmp$p.value}}colnames(p.mat) <- rownames(p.mat) <- colnames(mat)p.mat}
+p.mat <- cor.mtest(down)
+flattenCorrMatrix <- function (cormat, pmat) {ut <- upper.tri(cormat) 
+data.frame( row=rownames(cormat)[row(cormat)[ut]],column= rownames(cormat)[col(cormat)[ut]], cor =(cormat)[ut],p = pmat[ut] )}
+corrplot(M, type="lower",method = "color")col<- colorRampPalette (c("#0000EE","#F8F8FF", "#ff3300"))(80)
+corrplot(M, type="lower", tl.col="black",col=col, method = "color",
+diag = T,tl.pos = "dt",cl.pos = "r",p.mat = p.mat,sig.level = c(0.001, 0.01, 0.05), pch.cex = 0.8,insig = "label_sig")
+
+# R code for scRNA-seq datasets of MAIT cells from HC, IT and IA groups.
+
+library(Seurat)
+library(ggplot2)
+dir.create(tempdir())
+load("MAIT_HAT.RData")
+meta <- MAIT_HAT@meta.data
+a <- meta[17]
+clonefreq <- ifelse(
+  a$clone.freq == 1, "Single",
+  ifelse(a$clone.freq <= 5, "small",
+         ifelse(a$clone.freq <=10, "Medium",
+                ifelse(a$clone.freq <=30, "Large",
+                       ifelse(a$clone.freq <=288,"Hyper","others"
+                       )))))
+
+ a <- data.frame(a,clonefreq )                 
+ MAIT_HAT<- AddMetaData(MAIT_HAT,metadata = a) 
+ Idents(MAIT_HAT)<- MAIT_HAT@meta.data$tissue
+ Liver <- subset(MAIT_HAT,ident = "Liver")
+ Blood <- subset(MAIT_HAT,ident = "Blood")
+ Livermeta <- data.frame(table(Liver@meta.data$clone.id))
+ Bloodmeta <- data.frame(table(Blood@meta.data$clone.id))
+ write.csv(Livermeta,"liver tcr clonetype.csv")
+ write.csv(Bloodmeta,"Blood tcr clonetype.csv")
+##make“share clonetype.csv”by excel
+ shared <- read.csv("share clonetype.csv")
+ shared.clone <-as.character(shared[,1])
+
+a <- meta[7]
+level <- ifelse(a$clone.id %in%shared.clone, "shared","unshared")
+MAIT_HAT <- FindVariableFeatures(MAIT_HAT, selection.method = "vst", nfeatures = 2000)
+top10<-head(VariableFeatures(MAIT_HAT),10)
+VariableFeaturePlot(MAIT_HAT )
+LabelPoints(plot = VariableFeaturePlot(MAIT_HAT ), points = top10, repel = F, xnudge = 0, ynudge = 0)
+ 
+MAIT_HAT <- ScaleData(MAIT_HAT, features = rownames(MAIT_HAT))
+MAIT_HAT <- RunPCA(MAIT_HAT, features = VariableFeatures(object = MAIT_HAT))
+ElbowPlot(MAIT_HAT, ndims = 50, reduction = "pca")
+
+MAIT_HAT<- FindNeighbors(MAIT_HAT, dims = 1:10)
+MAIT_HAT <- FindClusters(MAIT_HAT, resolution =0.5)
+MAIT_HAT <- RunTSNE(MAIT_HAT, dims = 1:10)
+MAIT_HAT<- RunUMAP(MAIT_HAT, dims = 1:10)
+DimPlot(MAIT_HAT,reduction = "umap",pt.size = 0.1,group.by = "tissue")+theme(text = element_text(size = 8,family = "B"),legend.key.size = unit(1, "pt"),
+    axis.text = element_text(size = 8,family = "B"))+
+  guides(color=guide_legend(override.aes = list(size=1,alpha=1)))
+
+windowsFonts(A = windowsFont("Times New Roman"),
+             B = windowsFont("Arial"))
+Idents(MAIT_HAT) <-MAIT_HAT@meta.data$seurat_clusters
+p <- DimPlot(MAIT_HAT,group.by = "tissue")
+DimPlot(MAIT_HAT)
+p15 <-DimPlot(MAIT_HAT,label = F,pt.size = 0.5, label.size = 1,split.by = "tissue")
+p15<-p15+theme(text = element_text(size = 8,family = "B"),
+               legend.key.size = unit(1, "pt"),
+               axis.text = element_text(size = 8,family = "B"))+
+    guides(color=guide_legend(override.aes = list(size=2,alpha=1)))
+p2 <- DimPlot(MAIT_HAT,label = F,pt.size = 0.5, label.size = 1,group.by = "tissue",split.by = "disease")
+p2<-p2+theme(text = element_text(size = 8,family = "B"),
+             legend.key.size = unit(1, "pt"),
+             axis.text = element_text(size = 8,family = "B"))+
+guides(color=guide_legend(override.aes = list(size=2,alpha=1)))
+p2
+
+
+ 
+# R code for analysis of differentially expressed genes in IA blood MAIT versus IT blood MAIT from scRNA
+ cMAIT_IAvsIT <- subset(MAIT_HAT, type %in% c("IA Blood", "IT Blood"))
+cMAIT_IAvsIT <- NormalizeData(cMAIT_IAvsIT) 
+cMAIT_IAvsIT <- FindVariableFeatures(cMAIT_IAvsIT, selection.method = "vst", nfeatures = 2000)
+top10variable <- head(VariableFeatures(cMAIT_IAvsIT), 10) 
+VariableFeaturePlot(cMAIT_IAvsIT) 
+rna_name <- rownames(cMAIT_IAvsIT) 
+cMAIT_IAvsIT <- ScaleData(cMAIT_IAvsIT, features = rna_name, model.use = "linear") 
+cMAIT_IAvsIT <- RunPCA(cMAIT_IAvsIT, features = VariableFeatures(object = cMAIT_IAvsIT), verbose = FALSE) 
+cMAIT_IAvsIT <- FindNeighbors(cMAIT_IAvsIT, dims = 1:10) 
+cMAIT_IAvsIT <- FindClusters(cMAIT_IAvsIT, dims = 1:10) 
+cMAIT_IAvsIT <- RunTSNE(cMAIT_IAvsIT, dims = 1:10) 
+cMAIT_IAvsIT <- RunUMAP(cMAIT_IAvsIT, dims = 1:10) 
+Idents(cMAIT_IAvsIT) <- cMAIT_IAvsIT$type
+de_genes <- FindMarkers(cMAIT_IAvsIT, ident.1 = "IA Blood", ident.2 = "IT Blood", min.pct = 0.25, logfc.threshold = 0.25) 
+significant_de_genes <- de_genes[de_genes$p_val_adj < 0.05 & abs(de_genes$avg_log2FC) > 1, ] 
+deg_names <- rownames(significant_de_genes)
+degs_info <- de_genes[, c("p_val_adj", "avg_log2FC", "p_val", "gene")]
+degs_info$gene <- rownames(degs_info)
+head(degs_info)
+significant_de_genes <- de_genes[de_genes$p_val_adj < 0.05 & abs(de_genes$avg_log2FC) > 1, ] 
+deg_names <- rownames(significant_de_genes)
+degs_info <- significant_de_genes[, c("p_val_adj", "avg_log2FC", "p_val")]
+degs_info$gene <- deg_names
+head(degs_info)
+write.csv(degs_info, "differentially_expressed_genes.csv", row.names = FALSE)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+deg_genes <- rownames(significant_de_genes)
+go_enrichment <- enrichGO(gene = deg_genes, 
+                          OrgDb = org.Hs.eg.db, 
+                          keyType = "SYMBOL", 
+                          ont = "BP",  pAdjustMethod = "BH", 
+                          qvalueCutoff = 0.05)
+summary(go_enrichment)
+
+
