@@ -109,7 +109,41 @@ corrplot(M, type="lower",method = "color")col<- colorRampPalette (c("#0000EE","#
 corrplot(M, type="lower", tl.col="black",col=col, method = "color",
 diag = T,tl.pos = "dt",cl.pos = "r",p.mat = p.mat,sig.level = c(0.001, 0.01, 0.05), pch.cex = 0.8,insig = "label_sig")
 
-# R code for scRNA-seq datasets of MAIT cells from HC, IT and IA groups.
+R codes for subset MAIT cells from HC, IT and IA groups of GSE182159 (scRNA-seq datasets)
+getwd()
+library(Seurat)
+library(dplyr)
+library(data.table)
+setwd("/home/root123/Desktop/")
+file_path <- "GSE182159_RAW"
+file_names <- list.files(path = file_path, pattern = "*.gz", full.names = TRUE)
+seurat_list <- list()
+for(i in 1:length(file_names)){
+  data_matrix <- fread(cmd = paste("zcat", file_names[i]), data.table = FALSE)
+  row.names(data_matrix) <- data_matrix[, 1]
+  data_matrix <- data_matrix[, -1]
+  seurat_obj <- CreateSeuratObject(counts = data_matrix)
+  seurat_list[[i]] <- seurat_obj
+}
+merged_seurat <- merge(seurat_list[[1]], y = seurat_list[-1],merge.data=T)
+save(merged_seurat,file = "all cell.RData")
+setwd("/home/root123/Desktop/GSE182159_RAW/")
+library(readxl)
+META <- read_excel(path = "gutjnl-2021-325915supp006_data_supplement (1).xlsx", sheet = 1)
+META <- as.data.frame(META)
+k<- as.character(META$barcode) 
+VDJ <- subset(merged_seurat, cells = k)
+VDJ <- JoinLayers(VDJ)
+META1 <-subset(META,barcode %in% colnames(VDJ))
+META2 <- as.data.frame(META1,row.names = META1$barcode)
+VDJ <-AddMetaData(VDJ,metadata = META2)
+sce <- subset(VDJ,SLC4A10 > 0,assay = "RNA", slot = "counts")
+MAIT<- subset(sce,v_gene.x=="TRAV1-2")
+table(MAIT$j_gene.x)
+MAIT_HAT<-subset(MAIT, disease=="HC" | disease=="IA" | disease=="IT") 
+
+
+# R code for UMAP and clonal distibution of MAIT cells from HC, IT and IA groups.
 
 library(Seurat)
 library(ggplot2)
